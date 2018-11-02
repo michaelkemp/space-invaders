@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Space Invaders</title>
+<style>
+body,html {
+    margin:10px;
+    padding:10px;
+	background-color:#444;
+}
+#gameBoard {
+    display:block;
+    margin:0px auto;
+    width:448px;
+    height:512px;
+    background-color: black;
+}
+</style>
+<script src="jquery-2.1.4.min.js"></script>
+<script>
+$(document).ready(function() {
+    var sprites = new Array();
+    sprites.push( {name:"squid", show:0, count:2, images:[[0,0], [25,0]], width:16, height:16} );
+    sprites.push( {name:"crab", show:0, count:2, images:[[0,25], [25,25]], width:22, height:16} );
+    sprites.push( {name:"octopus", show:0, count:2, images:[[0,50], [25,50]], width:24, height:16} );
+    sprites.push( {name:"ufo", show:0, count:1, images:[[0,300]], width:48, height:21} );
+    sprites.push( {name:"ship", show:0, count:6, images:[[0,100],[0,125],[0,150],[0,175],[0,200],[0,225]], width:26, height:17} );
+    sprites.push( {name:"explode", show:0, count:1, images:[[0,75]], width:24, height:16} );
+    sprites.push( {name:"greenPop", show:0, count:2, images:[[25,75],[25,85]], width:6, height:7} );
+    sprites.push( {name:"whitePop", show:0, count:2, images:[[35,75],[35,85]], width:6, height:7} );
+
+    for(var row=0; row<6; ++row) {
+        for(var col=0; col<16; ++col) {
+            var ascii = 32 + (row * 16) + col;
+            var x = 53 + ( row * 15 );
+            var y = 2 + (col * 22);
+            sprites.push( {name:"asc" + ascii , show:0, count:1, images:[[x,y]], width:10, height:14} );
+        }
+    }
+    
+	function getImages(name) {
+		for(var i=0; i<sprites.length; ++i) {
+			if (sprites[i].name == name) {
+				return i;
+			}
+		}
+		return -1;
+	}
+
+    // GAME CONSTANTS 
+    const CWIDE = 448;
+    const CHIGH = 512;
+    const invaderX = 4;
+    const invaderY = 8;
+    const BARRICADE1 = 32;
+    const BARRICADE2 = 78;
+    const BARRICADE3 = 124;
+    const BARRICADE4 = 170;
+
+	// GAME CANVAS - original space invaders is 224x256
+    var canvas = document.getElementById('gameBoard');
+    var ctx = canvas.getContext('2d');
+    ctx.width   = CWIDE;
+    ctx.height  = CHIGH;
+
+    
+    // GAME VARIABLES
+    var p1Score = 0;
+    var p2Score = 0;
+    var hiScore = 0;
+    var animationTicker = 0;
+    var spritesLoaded = false;
+    var squidSprite = getImages("squid");
+    var crabSprite = getImages("crab");
+    var octopusSprite = getImages("octopus");
+    var shipSprite = getImages("ship");
+    var explodeSprite = getImages("explode");
+    var greenPopSprite = getImages("greenPop");
+    var whitePopSprite = getImages("whitePop");
+    var fleet = new Array();
+    var canRight = true;
+    var canLeft = false;
+    var direction = "right";
+    var KeyBits = 0;
+    var stillAlive = 55;
+    var currentInvaded = 0;
+    var eatBarricade = 0;
+    var startHeight = 120;
+    var level = 0;
+    var lives = 3;
+    var bombFrequency = 5;//160;
+    
+	// INVADER OBJECT
+	function invader(x,y,left,wide,high,sprite,score,alive) {
+		this.x = x; // Current X Position of INVADER 
+		this.y = y; // Current Y Position of INVADER
+        this.left = left;
+        this.wide = wide;
+        this.high = high;
+		this.sprite = sprite; // Sprite Number
+        this.score = score;
+        this.alive = alive;
+	};
+
+    var ship = {x: 8, y: 430, alive: true, show: 1, sprite: shipSprite, wide: sprites[shipSprite].width, high: sprites[shipSprite].height, cnt: 0 };
+    var missile = {x: 21, y: 410, wide: 2, high: 6 };
+    var explode = {x: 0, y: 0, cnt: 0 };
+    var greenPop = {x: 0, y: 0, cnt: 0 };
+    var whitePop = {x: 0, y: 0, cnt: 0 };
+
+    var block = [[0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+                 [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],
+                 [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+                 [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+                 [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                 [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                 [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                 [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                 [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                 [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                 [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                 [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                 [1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1],
+                 [1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1],
+                 [1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1],
+                 [1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1]];
+                 
+    var barricade = [];
+    for(var row=0; row<24; ++row) {
+        barricade[row] = [];
+        for(var col=0; col<224; ++col) {
+            barricade[row][col] = 0;
+        }
+    }
+
+    for(var row=0; row<block.length; ++row) {
+        for(var col=0; col<block[row].length; ++col) {
+            barricade[row+4][col+BARRICADE1] = block[row][col];
+            barricade[row+4][col+BARRICADE2] = block[row][col];
+            barricade[row+4][col+BARRICADE3] = block[row][col];
+            barricade[row+4][col+BARRICADE4] = block[row][col];
+        }
+    }
+    
+    var barricadeData = ctx.createImageData(CWIDE, 48);
+    function writeToImage(row,col,r,g,b,a) {
+        r1 = row*2; 	c1 = col*2;
+        r2 = row*2;		c2 = col*2+1;
+        r3 = row*2+1;	c3 = col*2;
+        r4 = row*2+1;	c4 = col*2+1;
+        j=(r1*4*CWIDE)+(c1*4); 
+        barricadeData.data[j+0] = r; //red
+        barricadeData.data[j+1] = g; //green
+        barricadeData.data[j+2] = b; //blue
+        barricadeData.data[j+3] = a; //alpha
+        j=(r2*4*CWIDE)+(c2*4); 
+        barricadeData.data[j+0] = r; //red
+        barricadeData.data[j+1] = g; //green
+        barricadeData.data[j+2] = b; //blue
+        barricadeData.data[j+3] = a; //alpha
+        j=(r3*4*CWIDE)+(c3*4); 
+        barricadeData.data[j+0] = r; //red
+        barricadeData.data[j+1] = g; //green
+        barricadeData.data[j+2] = b; //blue
+        barricadeData.data[j+3] = a; //alpha
+        j=(r4*4*CWIDE)+(c4*4); 
+        barricadeData.data[j+0] = r; //red
+        barricadeData.data[j+1] = g; //green
+        barricadeData.data[j+2] = b; //blue
+        barricadeData.data[j+3] = a; //alpha
+    }
+
+    for(var row=0; row<barricade.length; ++row) {
+        for(var col=0; col<barricade[row].length; ++col) {
+            var r = 0; //red
+            var g = 0; //green
+            var b = 0; //blue
+            var a = 0; //alpha
+            if (barricade[row][col] == 1) { r = 64; g = 255; b = 64; a = 255; }
+            writeToImage(row,col,r,g,b,a);
+        }
+    }
+
+
+	// IMAGE CONTAINING SPRITE MAP
+    var spriteImage = new Image(); spriteImage.src = 'invaders.png';
+    spriteImage.onload = function(){
+        spritesLoaded = true;
+    }
+
+	/// ================================= GAME RESET =================================
+    function reset() {
+        fleet = [];
+        animationTicker = 0;
+        canRight = true;
+        canLeft = false;
+        direction = "right";
+        ++level; 
+        
+        var invaderCnt = 0;
+        var startLeft = 16;
+        
+        var top = startHeight;
+        // add squids
+        var wide = sprites[squidSprite].width;
+        var high = sprites[squidSprite].height;
+        for(var i=0; i<11; ++i) { fleet[invaderCnt++] = new invader(startLeft+i*32,top+10,4,wide,high,squidSprite,40,true); }
+        // add crabs
+        var wide = sprites[crabSprite].width;
+        var high = sprites[crabSprite].height;
+        for(var i=0; i<11; ++i) { fleet[invaderCnt++] = new invader(startLeft+i*32,top+40,1,wide,high,crabSprite,20,true); }
+        for(var i=0; i<11; ++i) { fleet[invaderCnt++] = new invader(startLeft+i*32,top+70,1,wide,high,crabSprite,20,true); }
+        // add octopus
+        var wide = sprites[octopusSprite].width;
+        var high = sprites[octopusSprite].height;
+        for(var i=0; i<11; ++i) {fleet[invaderCnt++] = new invader(startLeft+i*32,top+100,0,wide,high,octopusSprite,10,true); }
+        for(var i=0; i<11; ++i) {fleet[invaderCnt++] = new invader(startLeft+i*32,top+130,0,wide,high,octopusSprite,10,true); }
+        
+    }
+	/// ================================= GAME RESET =================================
+    
+    
+	// MAIN DRAWING FUNCTION
+    function drawGameboard() {
+		// CLEAR THE CANVAS
+        ctx.clearRect(0,0, CWIDE,CHIGH);
+        ctx.putImageData(barricadeData, 0,372); 
+        if (!spritesLoaded) {return;}
+        
+        // DRAW INVADERS
+        for(var i=0; i<fleet.length; ++i) {
+            if (fleet[i].alive) {
+                var sprite = fleet[i].sprite;
+                var placeX = fleet[i].x + fleet[i].left;
+                var placeY = fleet[i].y;
+                var show = sprites[sprite].show;
+                var Xoff = sprites[sprite].images[show][0];
+                var Yoff = sprites[sprite].images[show][1];
+                var wide = sprites[sprite].width;
+                var high = sprites[sprite].height;
+                ctx.drawImage(spriteImage,   Xoff,Yoff,   wide,high,   placeX,placeY,   wide,high);
+            }
+        }
+        
+        // DRAW SHIP
+        if (ship.alive) {
+            var sprite = ship.sprite;
+            var placeX = ship.x;
+            var placeY = ship.y;
+            var show = sprites[sprite].show;
+            var Xoff = sprites[sprite].images[show][0];
+            var Yoff = sprites[sprite].images[show][1];
+            var wide = sprites[sprite].width;
+            var high = sprites[sprite].height;
+            ctx.drawImage(spriteImage,   Xoff,Yoff,   wide,high,   placeX,placeY,   wide,high);
+        } else {
+            var sprite = ship.sprite;
+            var placeX = ship.x;
+            var placeY = ship.y;
+            var show = ship.show + 1; 
+            var Xoff = sprites[sprite].images[show][0];
+            var Yoff = sprites[sprite].images[show][1];
+            var wide = sprites[sprite].width;
+            var high = sprites[sprite].height;
+            ctx.drawImage(spriteImage,   Xoff,Yoff,   wide,high,   placeX,placeY,   wide,high);
+        }
+        
+        // DRAW MISSILE
+        if (missile.alive) {
+            var placeX = missile.x;
+            var placeY = missile.y;
+            var wide = missile.wide;
+            var high = missile.high;
+            ctx.fillStyle="rgb(64,255,64)";
+            ctx.fillRect(placeX,placeY,wide,high);
+        }
+        
+        // DRAW BOMBS
+        for(var i=0; i<bombs.length; ++i) {
+            if (bombs[i].alive) {
+                var placeX = bombs[i].x;
+                var placeY = bombs[i].y;
+                var wide = bombs[i].wide;
+                var high = bombs[i].high;
+                ctx.fillStyle="rgb(255,255,255)";
+                ctx.fillRect(placeX,placeY,wide,high);
+            }
+        }
+
+        
+        // DRAW EXPLODE
+        if (explode.cnt > 0) {
+            var sprite = explodeSprite;
+            var placeX = explode.x;
+            var placeY = explode.y;
+            var show = sprites[sprite].show;
+            var Xoff = sprites[sprite].images[show][0];
+            var Yoff = sprites[sprite].images[show][1];
+            var wide = sprites[sprite].width;
+            var high = sprites[sprite].height;
+            ctx.drawImage(spriteImage,   Xoff,Yoff,   wide,high,   placeX,placeY,   wide,high);
+            --explode.cnt;
+        }
+        
+        // DRAW GREEN POP
+        if (greenPop.cnt > 0) {
+            var sprite = greenPopSprite;
+            var placeX = greenPop.x;
+            var placeY = greenPop.y;
+            var show = sprites[sprite].show;
+            var Xoff = sprites[sprite].images[show][0];
+            var Yoff = sprites[sprite].images[show][1];
+            var wide = sprites[sprite].width;
+            var high = sprites[sprite].height;
+            ctx.drawImage(spriteImage,   Xoff,Yoff,   wide,high,   placeX,placeY,   wide,high);
+            --greenPop.cnt;
+        }
+        
+        // DRAW WHITE POP
+        if (whitePop.cnt > 0) {
+            var sprite = whitePopSprite;
+            var placeX = whitePop.x;
+            var placeY = whitePop.y;
+            var show = sprites[sprite].show;
+            var Xoff = sprites[sprite].images[show][0];
+            var Yoff = sprites[sprite].images[show][1];
+            var wide = sprites[sprite].width;
+            var high = sprites[sprite].height;
+            ctx.drawImage(spriteImage,   Xoff,Yoff,   wide,high,   placeX,placeY,   wide,high);
+            --whitePop.cnt;
+        }
+        
+        // LINE AND EXTRA LIVES
+		ctx.fillStyle="rgb(64,255,64)";
+        ctx.fillRect(0,475,CWIDE,2);
+        var sprite = ship.sprite;
+        var show = sprites[sprite].show;
+        var Xoff = sprites[sprite].images[show][0];
+        var Yoff = sprites[sprite].images[show][1];
+        var wide = sprites[sprite].width;
+        var high = sprites[sprite].height;
+        ctx.drawImage(spriteImage,   Xoff,Yoff,   wide,high,   40,478,   wide,high);
+        ctx.drawImage(spriteImage,   Xoff,Yoff,   wide,high,   70,478,   wide,high);
+        
+        // TEXT
+        var string = "SCORE<1> HI-SCORE SCORE<2>";
+        var posX = 30;
+        var posY = 20;
+        for(var i=0; i<string.length; ++i) {
+            var c = string.charCodeAt(i);
+            var sprite = getImages("asc"+c);
+            var show = sprites[sprite].show;
+            var Xoff = sprites[sprite].images[show][0];
+            var Yoff = sprites[sprite].images[show][1];
+            var wide = sprites[sprite].width;
+            var high = sprites[sprite].height;
+            ctx.drawImage(spriteImage,   Xoff,Yoff,   wide,high,   (posX+(i*15)),posY,   wide,high);
+ 		}
+        
+        var string = "CREDIT 01";
+        var posX = 280;
+        var posY = 480;
+        for(var i=0; i<string.length; ++i) {
+            var c = string.charCodeAt(i);
+            var sprite = getImages("asc"+c);
+            var show = sprites[sprite].show;
+            var Xoff = sprites[sprite].images[show][0];
+            var Yoff = sprites[sprite].images[show][1];
+            var wide = sprites[sprite].width;
+            var high = sprites[sprite].height;
+            ctx.drawImage(spriteImage,   Xoff,Yoff,   wide,high,   (posX+(i*15)),posY,   wide,high);
+ 		}
+        
+        var string = level.toString();
+        var posX = 10;
+        var posY = 480;
+        for(var i=0; i<string.length; ++i) {
+            var c = string.charCodeAt(i);
+            var sprite = getImages("asc"+c);
+            var show = sprites[sprite].show;
+            var Xoff = sprites[sprite].images[show][0];
+            var Yoff = sprites[sprite].images[show][1];
+            var wide = sprites[sprite].width;
+            var high = sprites[sprite].height;
+            ctx.drawImage(spriteImage,   Xoff,Yoff,   wide,high,   (posX+(i*15)),posY,   wide,high);
+ 		}
+        
+        // P1 SCORE
+        var pad = "0000";
+        var string = p1Score.toString();
+        var string = pad.substring(0, pad.length - string.length) + string;
+        var posX = 120 - (string.length*15);
+        var posY = 50;
+        for(var i=0; i<string.length; ++i) {
+            var c = string.charCodeAt(i);
+            var sprite = getImages("asc"+c);
+            var show = sprites[sprite].show;
+            var Xoff = sprites[sprite].images[show][0];
+            var Yoff = sprites[sprite].images[show][1];
+            var wide = sprites[sprite].width;
+            var high = sprites[sprite].height;
+            ctx.drawImage(spriteImage,   Xoff,Yoff,   wide,high,   (posX+(i*15)),posY,   wide,high);
+ 		}
+        
+        // HI SCORE
+        var pad = "0000";
+        var string = hiScore.toString();
+        var string = pad.substring(0, pad.length - string.length) + string;
+        var posX = 255 - (string.length*15);
+        var posY = 50;
+        for(var i=0; i<string.length; ++i) {
+            var c = string.charCodeAt(i);
+            var sprite = getImages("asc"+c);
+            var show = sprites[sprite].show;
+            var Xoff = sprites[sprite].images[show][0];
+            var Yoff = sprites[sprite].images[show][1];
+            var wide = sprites[sprite].width;
+            var high = sprites[sprite].height;
+            ctx.drawImage(spriteImage,   Xoff,Yoff,   wide,high,   (posX+(i*15)),posY,   wide,high);
+ 		}
+        
+        // P2 SCORE
+        var pad = "0000";
+        var string = p2Score.toString();
+        var string = pad.substring(0, pad.length - string.length) + string;
+        var posX = 390 - (string.length*15);
+        var posY = 50;
+        for(var i=0; i<string.length; ++i) {
+            var c = string.charCodeAt(i);
+            var sprite = getImages("asc"+c);
+            var show = sprites[sprite].show;
+            var Xoff = sprites[sprite].images[show][0];
+            var Yoff = sprites[sprite].images[show][1];
+            var wide = sprites[sprite].width;
+            var high = sprites[sprite].height;
+            ctx.drawImage(spriteImage,   Xoff,Yoff,   wide,high,   (posX+(i*15)),posY,   wide,high);
+ 		}
+        
+	}
+
+    
+    /// ================================= MAIN GAME LOOP =================================
+    function main() {
+        requestAnimationFrame(main);
+        animationTicker = animationTicker + 1;
+        
+        moveInvaders();
+        moveBombs(); 
+       
+        moveShip();
+        moveMissile();
+        if ((animationTicker % (bombFrequency+stillAlive+17)) == 0) {
+            makeBomb();
+        }
+        if (!ship.alive) {
+            if (ship.cnt == 1) {
+                ship.alive = true;
+                ship.x = 8;
+            }
+            --ship.cnt; 
+        }
+        
+        drawGameboard();
+        if (stillAlive == 0) {
+            if (startHeight <= 220) {
+                startHeight += 20;
+            }
+            bombFrequency = Math.ceil(bombFrequency/2);
+            reset();
+        }
+    }
+    /// ================================= MAIN GAME LOOP =================================
+
+    function moveShip() {
+        if (ship.alive) {
+            if ((KeyBits&1) == 1) { ship.x -= 2; if (ship.x < 8) { ship.x = 8; } }
+            if ((KeyBits&2) == 2) { ship.x += 2; if (ship.x > (CWIDE-8-26)) { ship.x = (CWIDE-8-26); }  }
+        }
+        if ((animationTicker % 13) == 0) { ship.show = (ship.show+1) % 5; }
+    }
+    
+    function moveInvaders() {
+        var move = 0;
+        var down = 0;
+        
+        if (currentInvaded >= 432) {
+            ship.alive = false;
+            return;
+        }
+        
+        if (stillAlive > 44) { invaderSpeed = 30; }
+        else if (stillAlive > 33) { invaderSpeed = 24; }
+        else if (stillAlive > 22) { invaderSpeed = 18; }
+        else if (stillAlive > 11) { invaderSpeed = 12; }
+        else if (stillAlive > 0)  { invaderSpeed = stillAlive; }
+        else { invaderSpeed = 1; }
+        
+        if ((animationTicker % invaderSpeed) == 0) {
+            sprites[squidSprite].show = (sprites[squidSprite].show+1) % sprites[squidSprite].count; 
+            sprites[crabSprite].show = (sprites[crabSprite].show+1) % sprites[crabSprite].count; 
+            sprites[octopusSprite].show = (sprites[octopusSprite].show+1) % sprites[octopusSprite].count; 
+            switch (direction) {
+                case "right":
+                    if (canRight) { move = invaderX; }
+                    else { direction = "left"; move = 0; down = invaderY; }
+                    break;
+                case "left":
+                    if (canLeft) { move = -1 * invaderX; }
+                    else { direction = "right"; move = 0; down = invaderY; }
+                    break;
+            }
+        }
+        
+        stillAlive = 0;
+        currentInvaded = 0;
+        canRight = true;
+        canLeft = true;
+        bombCols = [];
+        for(var i=0; i<fleet.length; ++i) {
+            var col = i % 11; if ((fleet[col].alive) || (fleet[col+11].alive) || (fleet[col+22].alive) || (fleet[col+33].alive) || (fleet[col+44].alive)) { bombCols.push(col); }        
+            if (fleet[i].alive) {
+                ++stillAlive;
+                fleet[i].x += move;
+                fleet[i].y += down;
+
+                var placeX = fleet[i].x + fleet[i].left;
+                var placeY = fleet[i].y;
+                var wide = fleet[i].wide;
+                var high = fleet[i].high;
+                
+                // DIRECTION
+                if ((placeX+wide+invaderX) > (CWIDE-16)) { canRight = false; }
+                if ((placeX-invaderX) < (0+16)) { canLeft = false; }
+                
+                // COLLISION
+                if (missile.alive) {
+                    var invLhs = placeX;
+                    var invRhs = placeX + wide;
+                    var invTop = placeY;
+                    var invBut = placeY + high;
+                    var mssLhs = missile.x;
+                    var mssRhs = missile.x + missile.wide;
+                    var mssTop = missile.y;
+                    var mssBut = missile.y + missile.high;
+                    
+                    if (!(invLhs > mssRhs || invRhs < mssLhs || invTop > mssBut || invBut < mssTop)) { 
+                        p1Score += fleet[i].score;
+                        hiScore = (hiScore < p1Score) ? p1Score : hiScore;
+                        missile.alive = false;
+                        fleet[i].alive = false;
+                        explode.cnt = 5;
+                        explode.x = fleet[i].x;
+                        explode.y = fleet[i].y;
+
+                    }
+                }
+            
+                // HOW CLOSE TO BEING INVADED
+                currentInvaded = ((fleet[i].y+16) > currentInvaded) ? (fleet[i].y+16) : currentInvaded;
+            }
+        }
+        
+        // REMOVE INVADED BARRICADE
+        var row = Math.floor((currentInvaded - 372) / 2);
+        if ((row < 24) && (row >= 0)) {
+            for(var y=eatBarricade; y<row; ++y) {
+                for(var x=0;x<224; ++x) {
+                    barricade[y][x] = 0;
+                    writeToImage(y,x,0,0,0,0);
+                    //console.log(eatBarricade,y,x)
+                }
+            }
+            eatBarricade = (eatBarricade < row) ? row : eatBarricade;
+        }
+    }
+
+    var bombs = [];
+    var bombCols = [];
+    var liveBombs = 0;
+    function makeBomb() {
+        if (stillAlive < 1) { return; }
+        var col = bombCols[Math.floor(Math.random()*bombCols.length)];
+
+        if (fleet[col+44].alive) { i=col+44; }
+        else if  (fleet[col+33].alive) { i=col+33; }
+        else if  (fleet[col+22].alive) { i=col+22; }
+        else if  (fleet[col+11].alive) { i=col+11; }
+        else { i=col; }
+
+        if (liveBombs == 0) { bombs = []; } 
+        var bombX = fleet[i].x + (fleet[i].wide/2) + fleet[i].left;
+        var bombY = fleet[i].y + 8;
+        bombs.push({x: bombX, y: bombY, wide: 2, high: 6, alive: true });
+        ++liveBombs;
+    }
+    
+    function moveBombs() {
+        for(var i=0; i<bombs.length; ++i) {
+            var yPos = bombs[i].y;
+            for(var j=1; j<=4; ++j) {
+                if (bombs[i].alive) {
+                    bombs[i].y = yPos + j;
+                    var col = Math.floor(bombs[i].x / 2);
+                    var row = Math.floor((bombs[i].y - 372) / 2);
+                    if ((row < 24) && (row >= 0)) {
+                        if (barricade[row][col] == 1) {
+                            rRow = row; rCol = col; barricade[rRow][rCol] = 0; writeToImage(rRow,rCol,0,0,0,0);
+                            rRow = row; rCol = col-1; barricade[rRow][rCol] = 0; writeToImage(rRow,rCol,0,0,0,0);
+                            rRow = row; rCol = col+1; barricade[rRow][rCol] = 0; writeToImage(rRow,rCol,0,0,0,0);
+                            rRow = row+1; rCol = col; barricade[rRow][rCol] = 0; writeToImage(rRow,rCol,0,0,0,0);
+                            rRow = row+1; rCol = col-1; barricade[rRow][rCol] = 0; writeToImage(rRow,rCol,0,0,0,0);
+                            rRow = row+1; rCol = col+1; barricade[rRow][rCol] = 0; writeToImage(rRow,rCol,0,0,0,0);
+                            rRow = row+2; rCol = col; barricade[rRow][rCol] = 0; writeToImage(rRow,rCol,0,0,0,0);
+                            rRow = row+2; rCol = col-1; barricade[rRow][rCol] = 0; writeToImage(rRow,rCol,0,0,0,0);
+                            rRow = row+2; rCol = col+1; barricade[rRow][rCol] = 0; writeToImage(rRow,rCol,0,0,0,0);
+                            for(var r=0; r<4; ++r) {
+                                for(var c=0; c<5; ++c) {
+                                    var w = (rand(1,2) == 2) ? rand(0,3) : -1 * rand(0,3) ;
+                                    var rRow = row + r;
+                                    var rCol = col + w;
+                                    barricade[rRow][rCol] = 0;
+                                    writeToImage(rRow,rCol,0,0,0,0);
+                                }
+                            }
+                            whitePop.cnt = 5;
+                            whitePop.x = bombs[i].x-3;
+                            whitePop.y = bombs[i].y-3;
+                            sprites[whitePopSprite].show = (sprites[whitePopSprite].show+1) % sprites[whitePopSprite].count; 
+                            bombs[i].alive = false;
+                            --liveBombs;
+                        }
+                    }
+                    if (bombs[i].y > 470) {
+                        whitePop.cnt = 5;
+                        whitePop.x = bombs[i].x-3;
+                        whitePop.y = bombs[i].y-3;
+                        sprites[whitePopSprite].show = (sprites[whitePopSprite].show+1) % sprites[whitePopSprite].count; 
+                        bombs[i].alive = false; 
+                        --liveBombs; 
+                    }
+
+                    // COLLISION
+                    if (ship.alive) {
+                        var shipLhs = ship.x;
+                        var shipRhs = ship.x + ship.wide;
+                        var shipTop = ship.y + 8;
+                        var shipBut = ship.y + ship.high;
+                        var bombLhs = bombs[i].x;
+                        var bombRhs = bombs[i].x + bombs[i].wide;
+                        var bombTop = bombs[i].y;
+                        var bombBut = bombs[i].y + bombs[i].high;
+                        if (!(shipLhs > bombRhs || shipRhs < bombLhs || shipTop > bombBut || shipBut < bombTop)) { 
+                            whitePop.cnt = 5;
+                            whitePop.x = bombs[i].x-3;
+                            whitePop.y = bombs[i].y-3;
+                            sprites[whitePopSprite].show = (sprites[whitePopSprite].show+1) % sprites[whitePopSprite].count; 
+                            bombs[i].alive = false; 
+                            --liveBombs; 
+                            ship.alive = false;
+                            ship.cnt = 80;
+                            console.log("HIT",shipLhs, bombRhs, shipRhs, bombLhs, shipTop, bombBut, shipBut, bombTop);
+                        }
+                    }
+                    
+                }
+            }
+        }
+    }
+    
+    function moveMissile() {
+        if (!missile.alive) return;
+        
+        var yPos = missile.y;
+        for(var i=1; i<=8; ++i) {
+            missile.y = yPos - i;
+            var col = Math.floor(missile.x / 2);
+            var row = Math.floor((missile.y - 372) / 2);
+            if ((row < 24) && (row >= 0)) {
+                if (barricade[row][col] == 1) {
+                    rRow = row; rCol = col; barricade[rRow][rCol] = 0; writeToImage(rRow,rCol,0,0,0,0);
+                    rRow = row; rCol = col-1; barricade[rRow][rCol] = 0; writeToImage(rRow,rCol,0,0,0,0);
+                    rRow = row; rCol = col+1; barricade[rRow][rCol] = 0; writeToImage(rRow,rCol,0,0,0,0);
+                    rRow = row-1; rCol = col; barricade[rRow][rCol] = 0; writeToImage(rRow,rCol,0,0,0,0);
+                    rRow = row-1; rCol = col-1; barricade[rRow][rCol] = 0; writeToImage(rRow,rCol,0,0,0,0);
+                    rRow = row-1; rCol = col+1; barricade[rRow][rCol] = 0; writeToImage(rRow,rCol,0,0,0,0);
+                    for(var r=0; r<3; ++r) {
+                        for(var c=0; c<4; ++c) {
+                            var w = (rand(1,2) == 2) ? rand(0,3) : -1 * rand(0,3) ;
+                            var rRow = row - r;
+                            var rCol = col + w;
+                            barricade[rRow][rCol] = 0;
+                            writeToImage(rRow,rCol,0,0,0,0);
+                        }
+                    }
+ 
+                    greenPop.cnt = 5;
+                    greenPop.x = missile.x-3;
+                    greenPop.y = missile.y-7;
+                    sprites[greenPopSprite].show = (sprites[greenPopSprite].show+1) % sprites[greenPopSprite].count; 
+                    missile.alive = false;
+                    return;
+                }
+             }
+        }
+        
+        if (missile.y <= 80) {
+            missile.alive = false; 
+        }
+        
+    }
+
+    function shotFired() {
+        if (!missile.alive) {
+            missile.x = ship.x+12;
+            missile.y = 428;
+            missile.alive = true;
+        }
+    }
+    
+	// KEYBOARD
+	$(document).keydown(function(e) {
+        switch(e.which) {
+            case 37: KeyBits = (KeyBits|1); break; //LEFT
+            case 39: KeyBits = (KeyBits|2); break; //RIGHT
+            case 32: if (((KeyBits&4) == 0) && (ship.alive)) { shotFired(); } KeyBits = (KeyBits|4); break; //SPACE
+            case 65: ship.alive = (!ship.alive); break; //A
+            case 66: makeBomb(); break; //B 
+            default: return;
+        }
+        e.preventDefault(KeyBits);
+	});
+	$(document).keyup(function(e) {
+		switch(e.which) {
+			case 37: KeyBits = (KeyBits&(7-1)); break; //LEFT
+			case 39: KeyBits = (KeyBits&(7-2)); break; //RIGHT
+			case 32: KeyBits = (KeyBits&(7-4)); break; //SPACE
+			default: return;
+		}
+	});
+
+    function rand(min, max) {
+		return Math.floor(Math.random() * ((max - min) + 1)) + min;
+	}    
+    
+    reset();
+    main();
+});   
+</script>
+
+</head>
+<body>
+  <canvas id="gameBoard" width=448 height=512></canvas>
+</body>
+</html>
